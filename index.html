@@ -1,0 +1,440 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import { Youtube, Gamepad2, MessageSquare, Send, User, Trophy, RefreshCcw } from 'lucide-react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
+import { getFirestore, collection, onSnapshot, addDoc } from 'firebase/firestore';
+
+// --- Firebase Initialization ---
+// Note: In the Canvas environment, these variables are provided automatically.
+// When you deploy to GitHub, you will replace `__firebase_config` with your actual Firebase config object.
+const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+  // Dummy config for fallback if run entirely outside an injected environment without setup
+  apiKey: "dummy", authDomain: "dummy", projectId: "dummy" 
+};
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'froglogic-app';
+
+// --- Mini Game 1: Frog Tic-Tac-Toe ---
+const TicTacToe = () => {
+  const [board, setBoard] = useState(Array(9).fill(null));
+  const [isXNext, setIsXNext] = useState(true);
+  const winner = calculateWinner(board);
+
+  function calculateWinner(squares) {
+    const lines = [
+      [0, 1, 2], [3, 4, 5], [6, 7, 8], // rows
+      [0, 3, 6], [1, 4, 7], [2, 5, 8], // cols
+      [0, 4, 8], [2, 4, 6]             // diagonals
+    ];
+    for (let i = 0; i < lines.length; i++) {
+      const [a, b, c] = lines[i];
+      if (squares[a] && squares[a] === squares[b] && squares[a] === squares[c]) {
+        return squares[a];
+      }
+    }
+    return null;
+  }
+
+  const handleClick = (i) => {
+    if (board[i] || winner) return;
+    const newBoard = [...board];
+    newBoard[i] = isXNext ? '🐸' : '🪰';
+    setBoard(newBoard);
+    setIsXNext(!isXNext);
+  };
+
+  const resetGame = () => {
+    setBoard(Array(9).fill(null));
+    setIsXNext(true);
+  };
+
+  return (
+    <div className="flex flex-col items-center bg-gray-800 p-6 rounded-xl border border-green-500/30">
+      <h3 className="text-xl font-bold text-green-400 mb-4">Frog vs Fly Tic-Tac-Toe</h3>
+      <div className="grid grid-cols-3 gap-2 mb-4">
+        {board.map((cell, i) => (
+          <button
+            key={i}
+            onClick={() => handleClick(i)}
+            className="w-20 h-20 bg-gray-700 hover:bg-gray-600 flex items-center justify-center text-4xl rounded-lg transition-colors border border-gray-600"
+          >
+            {cell}
+          </button>
+        ))}
+      </div>
+      <div className="text-lg font-semibold mb-4 text-gray-200">
+        {winner ? (
+          <span className="text-yellow-400">Winner: {winner}!</span>
+        ) : board.every(Boolean) ? (
+          <span className="text-gray-400">It's a draw!</span>
+        ) : (
+          <span>Next player: {isXNext ? '🐸 Frog' : '🪰 Fly'}</span>
+        )}
+      </div>
+      <button onClick={resetGame} className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-500 text-white rounded-lg transition-colors">
+        <RefreshCcw size={18} /> Restart Game
+      </button>
+    </div>
+  );
+};
+
+// --- Mini Game 2: Catch the Fly ---
+const CatchTheFly = () => {
+  const [score, setScore] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [timeLeft, setTimeLeft] = useState(15);
+  const [flyPos, setFlyPos] = useState({ x: 50, y: 50 });
+
+  const startGame = () => {
+    setScore(0);
+    setTimeLeft(15);
+    setIsPlaying(true);
+    moveFly();
+  };
+
+  const moveFly = useCallback(() => {
+    setFlyPos({
+      x: Math.floor(Math.random() * 85) + 5, // Keep within bounds (5% to 90%)
+      y: Math.floor(Math.random() * 85) + 5,
+    });
+  }, []);
+
+  useEffect(() => {
+    let timer;
+    let flyMover;
+    if (isPlaying && timeLeft > 0) {
+      timer = setInterval(() => setTimeLeft((prev) => prev - 1), 1000);
+      flyMover = setInterval(moveFly, 800); // Fly moves every 800ms
+    } else if (timeLeft === 0) {
+      setIsPlaying(false);
+    }
+    return () => {
+      clearInterval(timer);
+      clearInterval(flyMover);
+    };
+  }, [isPlaying, timeLeft, moveFly]);
+
+  const catchFly = (e) => {
+    e.stopPropagation(); // Prevent container click if needed
+    if (!isPlaying) return;
+    setScore((s) => s + 1);
+    moveFly(); // Move immediately when caught
+  };
+
+  return (
+    <div className="flex flex-col items-center bg-gray-800 p-6 rounded-xl border border-green-500/30 w-full max-w-md mx-auto">
+      <h3 className="text-xl font-bold text-green-400 mb-2">Catch the Fly!</h3>
+      <div className="flex justify-between w-full mb-4 px-4 text-gray-300 font-semibold">
+        <span>Score: <span className="text-yellow-400">{score}</span></span>
+        <span>Time: <span className={timeLeft <= 5 ? "text-red-400" : "text-green-400"}>{timeLeft}s</span></span>
+      </div>
+      
+      <div className="relative w-full h-64 bg-gray-900 border-2 border-gray-700 rounded-lg overflow-hidden cursor-crosshair">
+        {isPlaying ? (
+          <button
+            onClick={catchFly}
+            style={{ left: `${flyPos.x}%`, top: `${flyPos.y}%`, position: 'absolute' }}
+            className="text-3xl transition-all duration-200 transform hover:scale-110 active:scale-95"
+          >
+            🪰
+          </button>
+        ) : (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60">
+            {timeLeft === 0 && <p className="text-white text-lg mb-2">Game Over! Score: {score}</p>}
+            <button onClick={startGame} className="flex items-center gap-2 px-6 py-3 bg-green-600 hover:bg-green-500 text-white font-bold rounded-lg transition-transform hover:scale-105 shadow-lg shadow-green-900/50">
+              <Gamepad2 size={20} /> {timeLeft === 0 ? "Play Again" : "Start Game"}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// --- Main Application Component ---
+export default function App() {
+  const [activeTab, setActiveTab] = useState('home');
+  const [user, setUser] = useState(null);
+  const [comments, setComments] = useState([]);
+  const [newComment, setNewComment] = useState("");
+  const [authorName, setAuthorName] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // 1. Initialize Authentication (Rule 3: Auth Before Queries)
+  useEffect(() => {
+    const initAuth = async () => {
+      try {
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+          await signInAnonymously(auth);
+        }
+      } catch (err) {
+        console.error("Auth Error:", err);
+      }
+    };
+    initAuth();
+
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // 2. Fetch Comments (Rule 1: Strict Paths, Rule 2: No Complex Queries)
+  useEffect(() => {
+    if (!user) return; // Guard clause
+
+    const commentsRef = collection(db, 'artifacts', appId, 'public', 'data', 'comments');
+    
+    const unsubscribe = onSnapshot(commentsRef, (snapshot) => {
+      const fetched = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      
+      // Sort in memory by timestamp descending (newest first)
+      fetched.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+      setComments(fetched);
+    }, (error) => {
+      console.error("Error fetching comments:", error);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
+
+  // 3. Submit a Comment
+  const handleCommentSubmit = async (e) => {
+    e.preventDefault();
+    if (!user || !newComment.trim() || !authorName.trim() || isSubmitting) return;
+
+    setIsSubmitting(true);
+    try {
+      const commentsRef = collection(db, 'artifacts', appId, 'public', 'data', 'comments');
+      await addDoc(commentsRef, {
+        text: newComment.trim(),
+        author: authorName.trim(),
+        timestamp: Date.now(),
+        userId: user.uid
+      });
+      setNewComment("");
+      // Keep authorName so they don't have to re-type it for multiple comments
+    } catch (err) {
+      console.error("Error adding comment:", err);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-900 text-gray-100 font-sans selection:bg-green-500/30">
+      {/* Header */}
+      <header className="bg-gray-800 border-b border-green-500/20 sticky top-0 z-10 shadow-lg">
+        <div className="max-w-4xl mx-auto px-4 py-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="text-4xl">🐸</span>
+            <h1 className="text-2xl font-black tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-green-400 to-emerald-300">
+              FrogLogic
+            </h1>
+          </div>
+          
+          <nav className="flex gap-2 bg-gray-900/50 p-1 rounded-lg">
+            <button 
+              onClick={() => setActiveTab('home')}
+              className={`px-4 py-2 rounded-md transition-all font-medium flex items-center gap-2 ${activeTab === 'home' ? 'bg-green-600 text-white shadow-md' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}
+            >
+              <Youtube size={18} /> Home
+            </button>
+            <button 
+              onClick={() => setActiveTab('games')}
+              className={`px-4 py-2 rounded-md transition-all font-medium flex items-center gap-2 ${activeTab === 'games' ? 'bg-green-600 text-white shadow-md' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}
+            >
+              <Gamepad2 size={18} /> Games
+            </button>
+            <button 
+              onClick={() => setActiveTab('comments')}
+              className={`px-4 py-2 rounded-md transition-all font-medium flex items-center gap-2 ${activeTab === 'comments' ? 'bg-green-600 text-white shadow-md' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}
+            >
+              <MessageSquare size={18} /> Board
+            </button>
+          </nav>
+        </div>
+      </header>
+
+      {/* Main Content Area */}
+      <main className="max-w-4xl mx-auto px-4 py-8">
+        
+        {/* --- HOME TAB --- */}
+        {activeTab === 'home' && (
+          <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="text-center space-y-6 py-12 bg-gray-800 rounded-3xl border border-gray-700 relative overflow-hidden">
+              <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-green-500/10 to-transparent pointer-events-none"></div>
+              
+              <div className="w-32 h-32 mx-auto bg-gray-900 rounded-full flex items-center justify-center text-6xl border-4 border-green-500 shadow-[0_0_30px_rgba(34,197,94,0.3)]">
+                🐸
+              </div>
+              
+              <div className="space-y-2 px-4">
+                <h2 className="text-4xl md:text-5xl font-bold text-white">Welcome to the Swamp!</h2>
+                <p className="text-xl text-gray-400 max-w-2xl mx-auto">
+                  The official website for <strong className="text-green-400">FrogLogic</strong>. 
+                  Gaming, logic puzzles, and amphibious shenanigans.
+                </p>
+              </div>
+
+              <div className="pt-4">
+                <a 
+                  href="https://youtube.com" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 px-8 py-4 bg-red-600 hover:bg-red-500 text-white font-bold rounded-full transition-transform hover:scale-105 shadow-lg shadow-red-900/50"
+                >
+                  <Youtube size={24} />
+                  SUBSCRIBE ON YOUTUBE
+                </a>
+              </div>
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-6">
+              <div className="bg-gray-800 p-6 rounded-2xl border border-gray-700">
+                <h3 className="text-xl font-bold text-green-400 mb-2 flex items-center gap-2">
+                  <Trophy size={20} /> Latest Videos
+                </h3>
+                <p className="text-gray-400 mb-4">Check out the newest uploads on the channel. I post weekly gaming challenges and logic puzzle walkthroughs!</p>
+                <div className="aspect-video bg-gray-900 rounded-lg flex items-center justify-center border border-gray-700">
+                  <span className="text-gray-500 flex flex-col items-center gap-2">
+                    <Youtube size={32} />
+                    [ YouTube Video Embed Here ]
+                  </span>
+                </div>
+              </div>
+
+              <div className="bg-gray-800 p-6 rounded-2xl border border-gray-700">
+                <h3 className="text-xl font-bold text-green-400 mb-2">About FrogLogic</h3>
+                <p className="text-gray-300 leading-relaxed mb-4">
+                  Hey! I'm FrogLogic. I started this channel to share my love for gaming and strategy. 
+                  Whether we are breaking down complex logic puzzles or just having fun in multiplayer games, 
+                  there is always something happening in the swamp.
+                </p>
+                <p className="text-gray-300 leading-relaxed">
+                  Hop over to the <button onClick={() => setActiveTab('games')} className="text-green-400 hover:underline font-bold">Games</button> tab 
+                  to try some mini-games, or leave a message on the <button onClick={() => setActiveTab('comments')} className="text-green-400 hover:underline font-bold">Board</button>!
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* --- GAMES TAB --- */}
+        {activeTab === 'games' && (
+          <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="text-center mb-8">
+              <h2 className="text-3xl font-bold text-white mb-2">Swamp Arcade</h2>
+              <p className="text-gray-400">Play some mini-games while you wait for the next video!</p>
+            </div>
+            
+            <div className="grid md:grid-cols-2 gap-8">
+              <CatchTheFly />
+              <TicTacToe />
+            </div>
+          </div>
+        )}
+
+        {/* --- COMMENTS TAB --- */}
+        {activeTab === 'comments' && (
+          <div className="max-w-2xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="text-center mb-8">
+              <h2 className="text-3xl font-bold text-white mb-2">Community Board</h2>
+              <p className="text-gray-400">Leave a message for FrogLogic or chat with other viewers!</p>
+            </div>
+
+            {/* Comment Form */}
+            <form onSubmit={handleCommentSubmit} className="bg-gray-800 p-6 rounded-2xl border border-gray-700 mb-8 shadow-xl">
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-400 mb-1">Your Name</label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <User size={18} className="text-gray-500" />
+                  </div>
+                  <input 
+                    type="text" 
+                    value={authorName}
+                    onChange={(e) => setAuthorName(e.target.value)}
+                    placeholder="Enter your name..."
+                    className="w-full pl-10 pr-4 py-3 bg-gray-900 border border-gray-700 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none text-white transition-all"
+                    required
+                  />
+                </div>
+              </div>
+              
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-400 mb-1">Message</label>
+                <textarea 
+                  value={newComment}
+                  onChange={(e) => setNewComment(e.target.value)}
+                  placeholder="What's on your mind?..."
+                  className="w-full p-4 bg-gray-900 border border-gray-700 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none text-white transition-all resize-none h-32"
+                  required
+                />
+              </div>
+
+              <div className="flex justify-end">
+                <button 
+                  type="submit" 
+                  disabled={isSubmitting || !user}
+                  className="flex items-center gap-2 px-6 py-3 bg-green-600 hover:bg-green-500 disabled:bg-gray-700 disabled:text-gray-500 disabled:cursor-not-allowed text-white font-bold rounded-lg transition-colors"
+                >
+                  <Send size={18} />
+                  {isSubmitting ? 'Posting...' : 'Post Message'}
+                </button>
+              </div>
+            </form>
+
+            {/* Comments List */}
+            <div className="space-y-4">
+              <h3 className="text-xl font-bold text-gray-200 border-b border-gray-700 pb-2 mb-4">
+                Recent Messages <span className="text-sm font-normal text-gray-500">({comments.length})</span>
+              </h3>
+              
+              {comments.length === 0 ? (
+                <div className="text-center py-12 bg-gray-800/50 rounded-xl border border-gray-700 border-dashed">
+                  <MessageSquare size={48} className="mx-auto text-gray-600 mb-4" />
+                  <p className="text-gray-400">No messages yet. Be the first to say hi!</p>
+                </div>
+              ) : (
+                comments.map(comment => (
+                  <div key={comment.id} className="bg-gray-800 p-5 rounded-xl border border-gray-700 shadow-sm hover:border-gray-600 transition-colors">
+                    <div className="flex justify-between items-start mb-2">
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-green-400 to-blue-500 flex items-center justify-center text-white font-bold text-sm shadow-sm">
+                          {comment.author.charAt(0).toUpperCase()}
+                        </div>
+                        <span className="font-bold text-gray-200">{comment.author}</span>
+                        {comment.author.toLowerCase() === 'froglogic' && (
+                          <span className="px-2 py-0.5 bg-green-900/50 text-green-400 text-xs rounded-full border border-green-500/30">
+                            Creator
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-xs text-gray-500">
+                        {new Date(comment.timestamp).toLocaleDateString()} at {new Date(comment.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                      </span>
+                    </div>
+                    <p className="text-gray-300 pl-10 whitespace-pre-wrap">{comment.text}</p>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+
+      </main>
+      
+      <footer className="border-t border-gray-800 mt-12 py-8 text-center text-gray-500 text-sm">
+        <p>© {new Date().getFullYear()} FrogLogic. Made with 🐸</p>
+      </footer>
+    </div>
+  );
+}
